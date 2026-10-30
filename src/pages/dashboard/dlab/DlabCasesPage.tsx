@@ -37,11 +37,41 @@ export default function DlabCasesPage() {
     (!q || [c.case_number, clientOf(c), patientOf(c), c.work_type].join(" ").toLowerCase().includes(q.toLowerCase()))), [cases, q, tech]);
   const open = cases.find((c) => c.id === openId) || null;
 
-  const step = (c: LabCaseRow, dir: 1 | -1) => {
-    const i = LAB_STAGES.findIndex((s) => s.key === normalizeStage(c.status));
-    const next = LAB_STAGES[i + dir];
-    if (next) move.mutate({ id: c.id, status: next.key });
+  const hold = useHoldCase();
+  const [holdFor, setHoldFor] = useState<LabCaseRow | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const isHeld = (c: LabCaseRow) => c.status === "on_hold";
+
+  /** Returns false when the move was refused. */
+  const tryMove = (c: LabCaseRow, to: string) => {
+    const from = isHeld(c) ? "on_hold" : normalizeStage(c.status);
+    const why = blockedReason(from, to, (c as any).qc_status);
+    if (why) {
+      if (from === "on_hold" || !window.confirm(`${why} Move ${c.case_number} anyway? (admin override)`)) {
+        toast({ title: "Move blocked", description: why, variant: "destructive" });
+        return false;
+      }
+    }
+    move.mutate({ id: c.id, status: to });
+    return true;
   };
+  const step = (c: LabCaseRow, dir: 1 | -1) => {
+    const s = normalizeStage(c.status);
+    const to = dir === 1 ? nextStage(s) : prevStage(s);
+    if (to) tryMove(c, to);
+  };
+  const batchAdvance = () => {
+    const list = visible.filter((c) => selected.includes(c.id) && !isHeld(c));
+    let n = 0;
+    for (const c of list) {
+      const to = nextStage(normalizeStage(c.status));
+      if (to && !blockedReason(normalizeStage(c.status), to, (c as any).qc_status)) { move.mutate({ id: c.id, status: to }); n++; }
+    }
+    toast({ title: `Advanced ${n} case${n === 1 ? "" : "s"}`, description: n < list.length ? `${list.length - n} skipped (QC not passed or already delivered).` : undefined });
+    setSelected([]);
+  };
+  const toggleSel = (id: string) => setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const lanes = [{ key: "on_hold", label: "On Hold", hint: "Waiting on the clinic" }, ...LAB_STAGES];
 
   return (
     <div className="space-y-5">
