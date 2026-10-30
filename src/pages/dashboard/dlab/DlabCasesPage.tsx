@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { format } from "date-fns";
-import { Plus, Search, ChevronRight, ChevronLeft, AlertTriangle, Zap, Pencil, Ban, User } from "lucide-react";
+import { Plus, Search, ChevronRight, ChevronLeft, AlertTriangle, Zap, Pencil, Ban, User, PauseCircle, PlayCircle } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,10 +15,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { LAB_STAGES, WORK_TYPES, normalizeStage, stageLabel } from "@/config/dentalLab";
 import { useLabCases, useUpdateLabCase, type LabCaseRow } from "@/hooks/useLabCases";
 import { useStaff } from "@/hooks/useStaff";
-import { useMoveCase, useCreateDentalLabCase, clientOf, patientOf, isRush, isOverdue, isCancelled } from "@/hooks/useDentalLab";
+import { useMoveCase, useHoldCase, useCreateDentalLabCase, clientOf, patientOf, isRush, isOverdue, isCancelled } from "@/hooks/useDentalLab";
 import { CaseFiles } from "@/components/dlab/CaseFiles";
+import { TeethPicker } from "@/components/dlab/TeethPicker";
+import { HoldDialog } from "@/components/dlab/HoldDialog";
+import { blockedReason, nextStage, prevStage, splitLegacyTeeth } from "@/lib/labWorkflow";
+import { toast } from "@/hooks/use-toast";
 import { useLabClientNames, canonicalClient, useClientPriceLookup } from "./dlabLinks";
 
+/** Structured teeth, falling back to the legacy "Teeth:" line in instructions. */
+const teethOf = (c: LabCaseRow): string[] => {
+  const t = (c as any).teeth as string[] | undefined;
+  return t && t.length ? t : splitLegacyTeeth(c.instructions).teeth;
+};
 const money = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
 
 export default function DlabCasesPage() {
@@ -227,10 +236,13 @@ function useTechnicians() {
 function EditCase({ c, technicians, onDone }: { c: LabCaseRow; technicians: { id: string; full_name: string }[]; onDone: () => void }) {
   const update = useUpdateLabCase();
   const names = useLabClientNames();
+  const legacy = splitLegacyTeeth(c.instructions);
+  const initTeeth = ((c as any).teeth as string[] | undefined)?.length ? (c as any).teeth as string[] : legacy.teeth;
+  const [teeth, setTeeth] = useState<string[]>(initTeeth);
   const [v, setV] = useState({
     client: clientOf(c) === "Walk-in client" ? "" : clientOf(c), doctor: c.clinic_doctor_name || "", patient: c.external_patient_name || "",
     work_type: c.work_type || WORK_TYPES[0], shade: c.shade || "", material: c.material || "", due_date: c.due_date || "",
-    fee: String(c.lab_fee ?? ""), discount: String(c.discount ?? ""), instructions: c.instructions || "", rush: isRush(c), technician_id: c.technician_id || "none",
+    fee: String(c.lab_fee ?? ""), discount: String(c.discount ?? ""), instructions: ((c as any).teeth?.length ? c.instructions : legacy.rest) || "", rush: isRush(c), technician_id: c.technician_id || "none",
   });
   const set = (k: string, val: any) => setV((p) => ({ ...p, [k]: val }));
   const types = WORK_TYPES.includes(v.work_type) ? WORK_TYPES : [v.work_type, ...WORK_TYPES];
@@ -239,7 +251,7 @@ function EditCase({ c, technicians, onDone }: { c: LabCaseRow; technicians: { id
     update.mutate({
       id: c.id, external_client_name: canonicalClient(v.client, names), clinic_doctor_name: v.doctor, external_patient_name: v.patient,
       work_type: v.work_type, shade: v.shade, material: v.material, due_date: v.due_date || null,
-      lab_fee: Number(v.fee || 0), discount: Number(v.discount || 0), instructions: v.instructions,
+      lab_fee: Number(v.fee || 0), discount: Number(v.discount || 0), instructions: v.instructions, teeth,
       urgency: v.rush ? "urgent" : "normal", is_urgent: v.rush, technician_id: t, assigned_technician_id: t,
     }, { onSuccess: onDone });
   };
@@ -255,6 +267,7 @@ function EditCase({ c, technicians, onDone }: { c: LabCaseRow; technicians: { id
           <SelectContent>{types.map((w) => <SelectItem key={w} value={w}>{w}</SelectItem>)}</SelectContent>
         </Select>
       </F>
+      <div className="sm:col-span-2"><F label="Teeth"><TeethPicker value={teeth} onChange={setTeeth} /></F></div>
       <F label="Shade"><Input value={v.shade} onChange={(e) => set("shade", e.target.value)} /></F>
       <F label="Material"><Input value={v.material} onChange={(e) => set("material", e.target.value)} /></F>
       <F label="Due date"><Input type="date" value={v.due_date} onChange={(e) => set("due_date", e.target.value)} /></F>
@@ -289,7 +302,7 @@ function Info({ label, value }: { label: string; value: string }) {
 
 export function NewCaseDialog({ open, onOpenChange, defaultClient = "" }: { open: boolean; onOpenChange: (o: boolean) => void; defaultClient?: string }) {
   const create = useCreateDentalLabCase();
-  const blank = { client: defaultClient, doctor: "", patient: "", work_type: WORK_TYPES[0], teeth: "", shade: "", material: "", due_date: "", fee: "", instructions: "", rush: false, technician_id: "none" };
+  const blank = { client: defaultClient, doctor: "", patient: "", work_type: WORK_TYPES[0], teeth: [] as string[], shade: "", material: "", due_date: "", fee: "", instructions: "", rush: false, technician_id: "none" };
   const technicians = useTechnicians();
   const [v, setV] = useState<Record<string, any>>(blank);
   const names = useLabClientNames();
@@ -328,7 +341,7 @@ export function NewCaseDialog({ open, onOpenChange, defaultClient = "" }: { open
               <SelectContent>{WORK_TYPES.map((w) => <SelectItem key={w} value={w}>{w}</SelectItem>)}</SelectContent>
             </Select>
           </F>
-          <F label="Teeth"><Input placeholder="e.g. 11, 21" value={v.teeth} onChange={(e) => set("teeth", e.target.value)} /></F>
+          <div className="sm:col-span-2"><F label="Teeth"><TeethPicker value={v.teeth} onChange={(t) => set("teeth", t)} /></F></div>
           <F label="Shade"><Input placeholder="e.g. A2" value={v.shade} onChange={(e) => set("shade", e.target.value)} /></F>
           <F label="Material"><Input value={v.material} onChange={(e) => set("material", e.target.value)} /></F>
           <F label="Due date"><Input type="date" value={v.due_date} onChange={(e) => set("due_date", e.target.value)} /></F>
