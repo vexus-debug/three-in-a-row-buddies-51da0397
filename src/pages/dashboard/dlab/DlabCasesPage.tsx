@@ -141,31 +141,44 @@ export default function DlabCasesPage() {
               <SheetHeader><SheetTitle>{open.case_number} · {open.work_type}</SheetTitle></SheetHeader>
               {editing ? <EditCase c={open} technicians={technicians} onDone={() => setEditing(false)} /> : (
               <div className="mt-4 space-y-4 text-sm">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="mr-1 h-3.5 w-3.5" />Edit case</Button>
+                  {isHeld(open)
+                    ? <Button size="sm" variant="outline" disabled={hold.isPending} onClick={() => hold.mutate({ id: open.id, reason: null })}><PlayCircle className="mr-1 h-3.5 w-3.5" />Release hold</Button>
+                    : <Button size="sm" variant="outline" onClick={() => setHoldFor(open)}><PauseCircle className="mr-1 h-3.5 w-3.5" />Put on hold</Button>}
                   <Button size="sm" variant="ghost" className="text-destructive" onClick={() => {
                     if (window.confirm(`Cancel case ${open.case_number}? It will be removed from the board and from billing.`)) { move.mutate({ id: open.id, status: "cancelled" }); setOpenId(null); }
                   }}><Ban className="mr-1 h-3.5 w-3.5" />Cancel case</Button>
                 </div>
+                {isHeld(open) && (
+                  <div className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs">
+                    <p className="font-medium">On hold{(open as any).hold_at ? ` since ${format(new Date((open as any).hold_at), "d MMM, HH:mm")}` : ""}</p>
+                    <p>{(open as any).hold_reason}</p>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <Info label="Client clinic" value={clientOf(open)} />
                   <Info label="Doctor" value={open.clinic_doctor_name || "—"} />
                   <Info label="Patient" value={patientOf(open)} />
                   <Info label="Due" value={open.due_date ? format(new Date(open.due_date), "d MMM yyyy") : "—"} />
+                  <Info label="Teeth" value={teethOf(open).join(", ") || "—"} />
                   <Info label="Shade" value={open.shade || "—"} />
                   <Info label="Material" value={open.material || "—"} />
                   <Info label="Fee" value={money(open.lab_fee)} />
-                  <Info label="Stage" value={stageLabel(open.status)} />
+                  <Info label="Stage" value={isHeld(open) ? "On hold" : stageLabel(open.status)} />
+                  <Info label="QC" value={(open as any).qc_status || "pending"} />
                   <Info label="Technician" value={techName(open.technician_id) || "Unassigned"} />
                 </div>
                 {open.instructions && <div><p className="text-xs text-muted-foreground">Instructions</p><p className="whitespace-pre-wrap">{open.instructions}</p></div>}
+                {!isHeld(open) && (
                 <div>
                   <Label className="text-xs text-muted-foreground">Move to stage</Label>
-                  <Select value={normalizeStage(open.status)} onValueChange={(v) => move.mutate({ id: open.id, status: v })}>
+                  <Select value={normalizeStage(open.status)} onValueChange={(v) => tryMove(open, v)}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>{LAB_STAGES.map((s) => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
+                )}
                 <CaseFiles caseId={open.id} />
               </div>
               )}
@@ -174,6 +187,11 @@ export default function DlabCasesPage() {
         </SheetContent>
       </Sheet>
 
+      {holdFor && (
+        <HoldDialog open onOpenChange={(o) => { if (!o) setHoldFor(null); }} caseNumber={holdFor.case_number} patient={patientOf(holdFor)}
+          doctor={holdFor.clinic_doctor_name || undefined} pending={hold.isPending}
+          onConfirm={(reason) => hold.mutate({ id: holdFor.id, reason }, { onSuccess: () => setHoldFor(null) })} />
+      )}
       <NewCaseDialog open={creating} onOpenChange={setCreating} />
     </div>
   );
