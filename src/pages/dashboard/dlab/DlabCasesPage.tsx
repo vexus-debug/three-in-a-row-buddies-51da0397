@@ -91,13 +91,21 @@ export default function DlabCasesPage() {
             {technicians.map((t) => <SelectItem key={t.id} value={t.id}>{t.full_name}</SelectItem>)}
           </SelectContent>
         </Select>
+        {selected.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={batchAdvance}>Advance {selected.length} selected<ChevronRight className="ml-0.5 h-3.5 w-3.5" /></Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected([])}>Clear</Button>
+          </div>
+        )}
       </div>
       {isLoading ? <p className="text-sm text-muted-foreground">Loading cases…</p> : (
         <div className="flex gap-3 overflow-x-auto pb-3 snap-x">
-          {LAB_STAGES.map((stage) => {
-            const list = visible.filter((c) => normalizeStage(c.status) === stage.key);
+          {lanes.map((stage) => {
+            const held = stage.key === "on_hold";
+            const list = visible.filter((c) => (held ? isHeld(c) : !isHeld(c) && normalizeStage(c.status) === stage.key));
+            if (held && !list.length) return null;
             return (
-              <div key={stage.key} className="w-[260px] shrink-0 snap-start rounded-xl bg-muted/40 p-2">
+              <div key={stage.key} className={`w-[260px] shrink-0 snap-start rounded-xl p-2 ${held ? "border border-warning/40 bg-warning/10" : "bg-muted/40"}`}>
                 <div className="mb-2 flex items-center justify-between px-1">
                   <div><p className="text-sm font-semibold">{stage.label}</p><p className="text-[11px] text-muted-foreground">{stage.hint}</p></div>
                   <Badge variant="secondary">{list.length}</Badge>
@@ -107,21 +115,30 @@ export default function DlabCasesPage() {
                     <Card key={c.id} className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => setOpenId(c.id)}>
                       <CardContent className="space-y-1.5 p-3">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-mono text-muted-foreground">{c.case_number}</span>
+                          <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            {!held && stage.key !== "delivered" && <Checkbox checked={selected.includes(c.id)} onCheckedChange={() => toggleSel(c.id)} aria-label={`Select ${c.case_number}`} />}
+                            <span className="text-xs font-mono text-muted-foreground">{c.case_number}</span>
+                          </span>
                           <div className="flex gap-1">
                             {isRush(c) && <Badge variant="destructive" className="px-1.5 text-[10px]"><Zap className="mr-0.5 h-3 w-3" />Rush</Badge>}
                             {isOverdue(c) && <Badge variant="outline" className="border-destructive px-1.5 text-[10px] text-destructive"><AlertTriangle className="mr-0.5 h-3 w-3" />Late</Badge>}
+                            {(c as any).qc_status === "rework_needed" && <Badge variant="outline" className="border-warning px-1.5 text-[10px]">Rework</Badge>}
                           </div>
                         </div>
-                        <p className="text-sm font-medium leading-tight">{c.work_type}</p>
+                        <p className="text-sm font-medium leading-tight">{teethOf(c).length ? <span className="font-mono text-xs text-primary">#{teethOf(c).join(", #")} · </span> : null}{c.work_type}</p>
                         <p className="text-xs text-muted-foreground">{clientOf(c)} · {patientOf(c)}</p>
+                        {held && <p className="text-[11px] font-medium">{(c as any).hold_reason}</p>}
                         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                           <span>{c.due_date ? `Due ${format(new Date(c.due_date), "d MMM")}` : ""}</span>
                           <span className="flex items-center gap-0.5"><User className="h-3 w-3" />{techName(c.technician_id) || "Unassigned"}</span>
                         </div>
                         <div className="flex justify-between pt-1" onClick={(e) => e.stopPropagation()}>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" disabled={stage.key === "pending"} onClick={() => step(c, -1)} aria-label="Move back"><ChevronLeft className="h-4 w-4" /></Button>
-                          <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={stage.key === "delivered"} onClick={() => step(c, 1)}>Next stage<ChevronRight className="ml-0.5 h-3.5 w-3.5" /></Button>
+                          {held ? (
+                            <Button size="sm" variant="ghost" className="h-7 w-full text-xs" onClick={() => hold.mutate({ id: c.id, reason: null })}><PlayCircle className="mr-1 h-3.5 w-3.5" />Release hold</Button>
+                          ) : (<>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={stage.key === "pending"} onClick={() => step(c, -1)} aria-label="Move back"><ChevronLeft className="h-4 w-4" /></Button>
+                            <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={stage.key === "delivered"} onClick={() => step(c, 1)}>Next stage<ChevronRight className="ml-0.5 h-3.5 w-3.5" /></Button>
+                          </>)}
                         </div>
                       </CardContent>
                     </Card>
