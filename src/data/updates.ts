@@ -13,6 +13,20 @@ export interface UpdateEntry {
 
 export const updates: UpdateEntry[] = [
   {
+    version: "v2.23.0",
+    date: "October 30, 2026",
+    title: "Lab Case Board: holds, tooth chart and batch moves",
+    kind: "feature",
+    items: [
+      { kind: "feature", text: "Put a case on hold with a reason and a ready-to-send WhatsApp message; released cases return to their previous stage." },
+      { kind: "feature", text: "Tap-to-select tooth chart when receiving or editing a case; tooth numbers show on board cards." },
+      { kind: "feature", text: "Select several cases and advance them to the next stage in one click." },
+      { kind: "improvement", text: "Cases can't move past Quality Check until QC has passed (with an admin override)." },
+      { kind: "fix", text: "Editing a case no longer loses its tooth numbers." },
+      { kind: "improvement", text: "Technician reassignments and holds are now recorded in the case history." },
+    ],
+  },
+  {
     version: "v2.22.1",
     date: "October 30, 2026",
     title: "Dental lab case history & production foundations",
