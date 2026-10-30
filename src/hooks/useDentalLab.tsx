@@ -32,6 +32,28 @@ export function useMoveCase() {
   });
 }
 
+/** Put a case on hold, or release it back to the stage it was in. */
+export function useHoldCase() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string | null }) => {
+      const sb = supabase as any;
+      if (reason) {
+        const { error } = await sb.from("lab_cases").update({ status: "on_hold", hold_reason: reason, hold_at: new Date().toISOString() }).eq("id", id);
+        if (error) throw error;
+        return;
+      }
+      const { data: h } = await sb.from("lab_case_history").select("from_status").eq("case_id", id).eq("to_status", "on_hold")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const back = h?.from_status && h.from_status !== "on_hold" ? h.from_status : "pending";
+      const { error } = await sb.from("lab_cases").update({ status: back, hold_reason: null, hold_at: null }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ["lab_cases"] }); toast({ title: v.reason ? "Case on hold" : "Hold released" }); },
+    onError: (e: any) => toast({ title: "Could not update hold", description: e.message, variant: "destructive" }),
+  });
+}
+
 export function useCreateDentalLabCase() {
   const qc = useQueryClient();
   const { currentOrg } = useOrg();
@@ -41,7 +63,7 @@ export function useCreateDentalLabCase() {
         org_id: currentOrg?.org_id, client_type: "external", status: "pending",
         external_client_name: v.client, clinic_doctor_name: v.doctor || "", external_patient_name: v.patient || "",
         work_type: v.work_type, shade: v.shade || "", material: v.material || "",
-        instructions: [v.teeth ? `Teeth: ${v.teeth}` : "", v.instructions || ""].filter(Boolean).join("\n"),
+        instructions: v.instructions || "", teeth: Array.isArray(v.teeth) ? v.teeth : [],
         due_date: v.due_date || null, urgency: v.rush ? "urgent" : "normal", is_urgent: !!v.rush,
         lab_fee: Number(v.fee || 0),
         technician_id: v.technician_id || null, assigned_technician_id: v.technician_id || null,

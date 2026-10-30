@@ -2177,6 +2177,7 @@ export type Database = {
           case_id: string
           changed_by: string | null
           created_at: string
+          field_changed: string
           from_status: string | null
           id: string
           org_id: string
@@ -2187,6 +2188,7 @@ export type Database = {
           case_id: string
           changed_by?: string | null
           created_at?: string
+          field_changed?: string
           from_status?: string | null
           id?: string
           org_id: string
@@ -2197,6 +2199,7 @@ export type Database = {
           case_id?: string
           changed_by?: string | null
           created_at?: string
+          field_changed?: string
           from_status?: string | null
           id?: string
           org_id?: string
